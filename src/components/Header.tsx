@@ -31,7 +31,7 @@ export async function Header() {
         <Link href="/" className="group flex flex-col leading-none" aria-label={`${site.title} — ${t("home")}`}>
           <span className="flex items-center gap-3">
             <span aria-hidden className="grid size-9 place-items-center rounded-full border border-gold/60 font-serif text-[0.8125rem] italic tracking-[0.04em] text-gold">aek</span>
-            <span className="flex flex-col">
+            <span className="flex flex-col whitespace-nowrap">
               <span className="font-serif text-[1.0625rem] font-normal tracking-[-0.005em] md:text-[1.1875rem]">Aleyna Elif Karaoğlu</span>
               <span className="mt-1 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-ivory/70">Avukat · Attorney</span>
             </span>
@@ -39,7 +39,7 @@ export async function Header() {
         </Link>
 
         <nav aria-label={t("primary")} className="hidden lg:block">
-          <ul className="flex items-center gap-9 text-small">
+          <ul className="flex items-center gap-6 whitespace-nowrap text-small xl:gap-9">
             {navItems.map((n) => (
               <li key={n.href}>
                 <Link href={n.href} className="relative py-2 text-ivory/85 transition-colors duration-200 hover:text-gold">
@@ -54,7 +54,7 @@ export async function Header() {
         </nav>
 
         <div className="hidden lg:block">
-          <Link href="/iletisim" className="btn min-h-11 rounded-full bg-gold px-5 text-ink hover:bg-[#d4b062]">
+          <Link href="/iletisim" className="btn min-h-11 whitespace-nowrap rounded-full bg-gold px-5 text-ink hover:bg-[#d4b062]">
             {t("appointment")}
           </Link>
         </div>
