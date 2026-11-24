@@ -15,15 +15,39 @@ export type ContactState = {
 // Birden fazla sunucu örneğinde kalıcı bir çözüm için Upstash Redis / Vercel KV önerilir (README).
 const WINDOW_MS = 10 * 60 * 1000;
 const LIMIT = 5;
+// Ek olarak örnek başına toplam üst sınır: çok sayıda farklı IP'den gelen bot dalgası
+// Resend kotasını tüketip gelen kutusunu doldurmasın.
+const GLOBAL_LIMIT = 40;
 const hits = new Map<string, number[]>();
+let globalHits: number[] = [];
 function rateLimited(key: string) {
   const now = Date.now();
+  globalHits = globalHits.filter((t) => now - t < WINDOW_MS);
+  if (globalHits.length >= GLOBAL_LIMIT) return true;
+  // Haritayı tamamen silmek yerine yalnızca süresi geçmiş kayıtları temizle
+  // (tamamen silmek, sınırı sıfırlamanın bir yolu olurdu).
+  if (hits.size > 5000) {
+    for (const [k, ts] of hits) if (!ts.some((t) => now - t < WINDOW_MS)) hits.delete(k);
+    if (hits.size > 5000) return true;
+  }
   const arr = (hits.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
+  if (arr.length >= LIMIT) {
+    hits.set(key, arr);
+    return true;
+  }
   arr.push(now);
   hits.set(key, arr);
-  if (hits.size > 5000) hits.clear();
-  return arr.length > LIMIT;
+  globalHits.push(now);
+  return false;
 }
+
+// Tek satırlık alanlardan satır sonu ve kontrol karakterlerini temizle
+// (e-posta konu satırına/başlıklarına satır enjekte edilmesini önler).
+// eslint-disable-next-line no-control-regex
+const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
+// Çok satırlı mesajda satır sonları kalsın, diğer kontrol karakterleri gitsin.
+// eslint-disable-next-line no-control-regex
+const multiLine = (s: string) => s.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim();
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -32,11 +56,11 @@ export async function sendContact(_prev: ContactState, form: FormData): Promise<
   const t = await getTranslations({ locale, namespace: "contact.form" });
 
   const v = {
-    name: String(form.get("name") ?? "").trim().slice(0, 120),
-    phone: String(form.get("phone") ?? "").trim().slice(0, 40),
-    email: String(form.get("email") ?? "").trim().slice(0, 160),
-    area: String(form.get("area") ?? "").trim(),
-    message: String(form.get("message") ?? "").trim().slice(0, 4000),
+    name: oneLine(String(form.get("name") ?? "")).slice(0, 120),
+    phone: oneLine(String(form.get("phone") ?? "")).slice(0, 40),
+    email: oneLine(String(form.get("email") ?? "")).slice(0, 160),
+    area: oneLine(String(form.get("area") ?? "")).slice(0, 60),
+    message: multiLine(String(form.get("message") ?? "")).slice(0, 4000),
   };
   const consent = form.get("consent") === "on";
 
@@ -50,6 +74,7 @@ export async function sendContact(_prev: ContactState, form: FormData): Promise<
   if (!v.email) errors.email = t("required");
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email)) errors.email = t("invalidEmail");
   if (!v.area) errors.area = t("required");
+  else if (v.area !== "diger" && !areas.some((a) => a.id === v.area)) errors.area = t("required");
   if (!v.message) errors.message = t("required");
   else if (v.message.length < 20) errors.message = t("tooShort");
   if (!consent) errors.consent = t("consentRequired");
@@ -60,7 +85,12 @@ export async function sendContact(_prev: ContactState, form: FormData): Promise<
   if (started && Date.now() - started < 2000) return { status: "success", message: t("success") };
 
   const h = await headers();
-  const ip = (h.get("x-forwarded-for") ?? "").split(",")[0].trim() || h.get("x-real-ip") || "unknown";
+  // Vercel'de x-vercel-forwarded-for / x-real-ip, istemcinin değiştiremediği gerçek IP'dir.
+  const ip =
+    h.get("x-vercel-forwarded-for")?.split(",")[0].trim() ||
+    h.get("x-real-ip") ||
+    (h.get("x-forwarded-for") ?? "").split(",")[0].trim() ||
+    "unknown";
   if (rateLimited(ip)) return { status: "error", message: t("rateLimited"), values: v };
 
   const apiKey = process.env.RESEND_API_KEY;
